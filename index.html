@@ -433,9 +433,6 @@ table.data-table tr:hover td{background:#FAFAFC;}
         <div class="card-body">
           <p class="additional-upload-intro">Upload multiple supporting files. The original filename will be saved automatically.</p>
           <div class="additional-upload-head">
-            <select class="input" id="additionalUploadPatient" onchange="setAdditionalUploadPatient(this.value)">
-              <option value="">Select a patient</option>
-            </select>
             <input type="file" id="additionalFileInput" multiple onchange="prepareAdditionalFiles(this.files)" style="display:none">
             <button class="btn btn-outline btn-sm" type="button" onclick="document.getElementById('additionalFileInput').click()"><i class="bi bi-plus-lg"></i> Add Files</button>
           </div>
@@ -446,7 +443,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
             <button class="btn btn-ghost btn-sm" type="button" onclick="clearAdditionalFilesQueue()"><i class="bi bi-x-circle"></i> Clear</button>
           </div>
           <div class="additional-upload-status" id="additionalUploadStatus" role="status"></div>
-          <div id="additionalFilesList" class="additional-files-list"><div class="empty-state small">Select a patient to view additional files.</div></div>
+          <div id="additionalFilesList" class="additional-files-list"><div class="empty-state small">No additional files uploaded yet.</div></div>
         </div>
       </div>
       <div class="search-bar">
@@ -1115,30 +1112,9 @@ async function handlePdfSelect(files){
 }
 
 let additionalFilesQueue = [];
-let additionalUploadPatientId = "";
 
 async function initAdditionalUploadSection(){
-  const select = document.getElementById("additionalUploadPatient");
-  if(!select || !sb) return;
-  const previousValue = select.value;
-  const {data, error} = await sb.from("patients").select("id,name,patient_number").order("name");
-  if(error) return;
-  const selectedWhileLoading = select.value;
-  const selectedValue = selectedWhileLoading || previousValue;
-  select.innerHTML = `<option value="">Select a patient</option>` + (data || []).map(patient=>
-    `<option value="${escapeHtml(patient.id)}">${escapeHtml(patient.name)}${patient.patient_number ? " · " + escapeHtml(patient.patient_number) : ""}</option>`
-  ).join("");
-  if(selectedValue && (data || []).some(patient=>patient.id===selectedValue)){
-    select.value = selectedValue;
-    additionalUploadPatientId = selectedValue;
-    loadAdditionalFilesForPatient(selectedValue);
-  }
-}
-
-function setAdditionalUploadPatient(patientId){
-  additionalUploadPatientId = patientId || "";
-  loadAdditionalFilesForPatient(additionalUploadPatientId);
-  if(additionalUploadPatientId) setAdditionalUploadStatus("");
+  loadAdditionalFilesForPatient(null);
 }
 
 function prepareAdditionalFiles(files){
@@ -1182,15 +1158,10 @@ function clearAdditionalFilesQueue(){
 }
 
 async function uploadAdditionalFiles(){
-  const patientId = additionalUploadPatientId || document.getElementById("additionalUploadPatient")?.value || "";
   const queuedFiles = additionalFilesQueue.filter(item=>item?.file && typeof item.file.name === "string" && typeof item.file.size === "number");
   if(!queuedFiles.length){
     setAdditionalUploadStatus("Choose one or more files first.");
     renderAdditionalFilesQueue();
-    return;
-  }
-  if(!patientId){
-    setAdditionalUploadStatus("Files are ready. Select a patient to link them, then click Save All.");
     return;
   }
   setAdditionalUploadStatus("");
@@ -1200,13 +1171,13 @@ async function uploadAdditionalFiles(){
   try{
     const results = await Promise.all(queuedFiles.map(async (item,index)=>{
       const safeName = item.file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-      const path = `${patientId}/additional/${Date.now()}_${index}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
+      const path = `additional/${Date.now()}_${index}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
       try{
         const {error:uploadError} = await sb.storage.from(PDF_BUCKET).upload(path, item.file, {contentType:item.file.type || "application/octet-stream", upsert:false});
         if(uploadError) throw uploadError;
         const {data:publicFile} = sb.storage.from(PDF_BUCKET).getPublicUrl(path);
         const {error:insertError} = await sb.from("lab_pdf_files").insert({
-          id:genId("FILE"), patient_id:patientId, test_name:"Additional Upload", file_name:item.file.name,
+          id:genId("FILE"), patient_id:null, test_name:"Additional Upload", file_name:item.file.name,
           storage_path:path, file_url:publicFile.publicUrl,
           uploaded_by:state.session.doctor_name || state.session.username
         });
@@ -1227,7 +1198,7 @@ async function uploadAdditionalFiles(){
     } else {
       toast("success","All files uploaded successfully");
     }
-    loadAdditionalFilesForPatient(patientId);
+    loadAdditionalFilesForPatient(null);
   }catch(error){
     Swal.fire({icon:"error", title:"Upload failed", text:error.message || "Please try again."});
   }finally{
@@ -1238,8 +1209,9 @@ async function uploadAdditionalFiles(){
 async function loadAdditionalFilesForPatient(patientId, targetId = "additionalFilesList"){
   const box = document.getElementById(targetId);
   if(!box) return;
-  if(!patientId){ box.innerHTML = `<div class="empty-state small">Select a patient to view additional files.</div>`; return; }
-  const {data, error} = await sb.from("lab_pdf_files").select("*").eq("patient_id", patientId).eq("test_name","Additional Upload").order("uploaded_at",{ascending:false});
+  let query = sb.from("lab_pdf_files").select("*").eq("test_name","Additional Upload").order("uploaded_at",{ascending:false});
+  if(patientId) query = query.eq("patient_id", patientId);
+  const {data, error} = await query;
   if(error || !data || !data.length){ box.innerHTML = `<div class="empty-state small">No additional files uploaded yet.</div>`; return; }
   const canDelete = state.session?.role === "lab" || state.session?.role === "admin";
   box.innerHTML = data.map(file=>`
