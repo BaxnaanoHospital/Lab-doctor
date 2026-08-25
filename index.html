@@ -226,6 +226,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
 .additional-upload-intro{font-size:12.5px;color:var(--text-muted);margin:0 0 14px;}
 .additional-upload-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
 .additional-upload-head .input{max-width:320px;}
+.additional-date-filter{max-width:170px;}
 .additional-file-row{display:grid;grid-template-columns:1fr 1.2fr auto;gap:10px;align-items:center;margin-bottom:10px;}
 .additional-file-row .file-name{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .additional-files-list{margin-top:16px;}
@@ -435,6 +436,10 @@ table.data-table tr:hover td{background:#FAFAFC;}
           <div class="additional-upload-head">
             <input type="file" id="additionalFileInput" multiple onchange="prepareAdditionalFiles(this.files)" style="display:none">
             <button class="btn btn-outline btn-sm" type="button" onclick="document.getElementById('additionalFileInput').click()"><i class="bi bi-plus-lg"></i> Add Files</button>
+            <select class="input additional-date-filter" id="additionalUploadDateFilter" onchange="loadAdditionalFilesForPatient(null)">
+              <option value="all">All dates</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="custom">Choose date...</option>
+            </select>
+            <input class="input additional-date-filter" type="date" id="additionalUploadCustomDate" onchange="loadAdditionalFilesForPatient(null)" style="display:none">
           </div>
           <div id="additionalFilesQueue" class="additional-files-list"></div>
           <div class="additional-upload-actions" id="additionalUploadActions" style="display:none;">
@@ -552,6 +557,12 @@ table.data-table tr:hover td{background:#FAFAFC;}
         <div class="card-header"><h3><i class="bi bi-files"></i> Uploads / Documents</h3><span class="badge role">Laboratory Files</span></div>
         <div class="card-body">
           <input class="input additional-doc-search" id="doctorDocumentsSearch" placeholder="Search by file name, title, patient or patient number…" oninput="loadDoctorDocuments()">
+          <div class="additional-upload-head">
+            <select class="input additional-date-filter" id="doctorDocumentsDateFilter" onchange="loadDoctorDocuments()">
+              <option value="all">All dates</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="custom">Choose date...</option>
+            </select>
+            <input class="input additional-date-filter" type="date" id="doctorDocumentsCustomDate" onchange="loadDoctorDocuments()" style="display:none">
+          </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead><tr><th>Original File Name</th><th>Patient</th><th>Patient No.</th><th>Upload Date</th><th>Uploaded By</th><th></th></tr></thead>
@@ -1122,6 +1133,30 @@ async function initAdditionalUploadSection(){
   loadAdditionalFilesForPatient(null);
 }
 
+function getUploadDateRange(filter, customDate){
+  if(filter === "custom" && customDate){
+    const start = new Date(customDate + "T00:00:00");
+    if(Number.isNaN(start.getTime())) return null;
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return {start:start.toISOString(), end:end.toISOString()};
+  }
+  if(filter !== "today" && filter !== "yesterday") return null;
+  const start = new Date();
+  start.setHours(0,0,0,0);
+  if(filter === "yesterday") start.setDate(start.getDate() - 1);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return {start:start.toISOString(), end:end.toISOString()};
+}
+
+function syncUploadDateControl(selectId, dateId){
+  const select = document.getElementById(selectId);
+  const date = document.getElementById(dateId);
+  if(select && date) date.style.display = select.value === "custom" ? "" : "none";
+  return {filter:select?.value || "all", customDate:date?.value || ""};
+}
+
 function prepareAdditionalFiles(files){
   const newFiles = Array.from(files || []).filter(file=>file.size > 0);
   additionalFilesQueue.push(...newFiles.map(file=>({file})));
@@ -1216,6 +1251,9 @@ async function loadAdditionalFilesForPatient(patientId, targetId = "additionalFi
   if(!box) return;
   let query = sb.from("lab_pdf_files").select("*, patient:patients(id, name, patient_number)").eq("test_name","Additional Upload").order("uploaded_at",{ascending:false});
   if(patientId) query = query.eq("patient_id", patientId);
+  const dateControl = syncUploadDateControl("additionalUploadDateFilter", "additionalUploadCustomDate");
+  const dateRange = getUploadDateRange(dateControl.filter, dateControl.customDate);
+  if(dateRange) query = query.gte("uploaded_at", dateRange.start).lt("uploaded_at", dateRange.end);
   const {data, error} = await query;
   if(loadToken !== state.detailLoadToken || (patientId && state.currentPatient?.id !== patientId)) return;
   if(error || !data || !data.length){ box.innerHTML = `<div class="empty-state small">No additional files uploaded yet.</div>`; return; }
@@ -1329,10 +1367,14 @@ async function loadDoctorDocuments(){
   const body = document.getElementById("doctorDocumentsBody");
   if(!body) return;
   const search = (document.getElementById("doctorDocumentsSearch")?.value || "").trim().toLowerCase();
-  const {data, error} = await sb.from("lab_pdf_files")
+  const dateControl = syncUploadDateControl("doctorDocumentsDateFilter", "doctorDocumentsCustomDate");
+  const dateRange = getUploadDateRange(dateControl.filter, dateControl.customDate);
+  let query = sb.from("lab_pdf_files")
     .select("*, patient:patients(id, name, patient_number)")
     .eq("test_name","Additional Upload")
     .order("uploaded_at",{ascending:false});
+  if(dateRange) query = query.gte("uploaded_at", dateRange.start).lt("uploaded_at", dateRange.end);
+  const {data, error} = await query;
   if(error){ body.innerHTML = `<tr><td colspan="6" class="empty-state">Could not load uploaded documents.</td></tr>`; return; }
   const files = (data || []).filter(file=>{
     const originalName = file.storage_path?.split("/").pop() || "";
