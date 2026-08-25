@@ -229,6 +229,9 @@ table.data-table tr:hover td{background:#FAFAFC;}
 .additional-file-row{display:grid;grid-template-columns:1fr 1.2fr auto;gap:10px;align-items:center;margin-bottom:10px;}
 .additional-file-row .file-name{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .additional-files-list{margin-top:16px;}
+.additional-upload-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.additional-upload-count{font-size:12px;color:var(--text-muted);font-weight:600;}
+.additional-doc-search{margin-bottom:14px;}
 @media(max-width:620px){.additional-file-row{grid-template-columns:1fr;gap:6px;padding:10px;border:1px solid var(--border);border-radius:8px;}}
 
 /* ---------- Doctor note ---------- */
@@ -426,15 +429,20 @@ table.data-table tr:hover td{background:#FAFAFC;}
       <div class="card additional-upload-card" id="additionalUploadCard">
         <div class="card-header"><h3><i class="bi bi-files"></i> Additional Uploads</h3></div>
         <div class="card-body">
-          <p class="additional-upload-intro">Upload multiple supporting files and give each file its own name.</p>
+          <p class="additional-upload-intro">Upload multiple supporting files. The original filename will be saved automatically.</p>
           <div class="additional-upload-head">
             <select class="input" id="additionalUploadPatient" onchange="loadAdditionalFilesForPatient(this.value)">
               <option value="">Select a patient</option>
             </select>
             <input type="file" id="additionalFileInput" multiple onchange="prepareAdditionalFiles(this.files)" style="display:none">
-            <button class="btn btn-outline btn-sm" type="button" onclick="document.getElementById('additionalFileInput').click()"><i class="bi bi-cloud-arrow-up"></i> Choose Files</button>
+            <button class="btn btn-outline btn-sm" type="button" onclick="document.getElementById('additionalFileInput').click()"><i class="bi bi-plus-lg"></i> Add Files</button>
           </div>
           <div id="additionalFilesQueue" class="additional-files-list"></div>
+          <div class="additional-upload-actions" id="additionalUploadActions" style="display:none;">
+            <span class="additional-upload-count" id="additionalUploadCount"></span>
+            <button class="btn btn-primary btn-sm" type="button" onclick="uploadAdditionalFiles()"><i class="bi bi-check2-all"></i> Save All</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="clearAdditionalFilesQueue()"><i class="bi bi-x-circle"></i> Clear</button>
+          </div>
           <div id="additionalFilesList" class="additional-files-list"><div class="empty-state small">Select a patient to view additional files.</div></div>
         </div>
       </div>
@@ -495,6 +503,10 @@ table.data-table tr:hover td{background:#FAFAFC;}
               <div id="pdPdfList" class="mt16"><div class="empty-state">Loading…</div></div>
             </div>
           </div>
+          <div class="card additional-upload-card">
+            <div class="card-header"><h3><i class="bi bi-files"></i> Uploads / Documents</h3></div>
+            <div class="card-body" id="patientAdditionalFilesList"><div class="empty-state">Loading…</div></div>
+          </div>
         </div>
       </div>
     </section>
@@ -536,6 +548,18 @@ table.data-table tr:hover td{background:#FAFAFC;}
         <button class="btn btn-primary" onclick="doctorSearchPatient()"><i class="bi bi-search"></i> Find Patient</button>
       </div>
       <div id="doctorSearchResult"></div>
+      <div class="card additional-upload-card">
+        <div class="card-header"><h3><i class="bi bi-files"></i> Uploads / Documents</h3><span class="badge role">Laboratory Files</span></div>
+        <div class="card-body">
+          <input class="input additional-doc-search" id="doctorDocumentsSearch" placeholder="Search by file name, title, patient or patient number…" oninput="loadDoctorDocuments()">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Original File Name</th><th>Patient</th><th>Patient No.</th><th>Upload Date</th><th>Uploaded By</th><th></th></tr></thead>
+              <tbody id="doctorDocumentsBody"><tr><td colspan="7" class="empty-state">Search or open Doctor Section to view documents.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ===== USERS ===== -->
@@ -760,6 +784,7 @@ function goView(name){
   if(name==="dashboard") loadDashboard();
   if(name==="patients") { loadPatients(); initAdditionalUploadSection(); }
   if(name==="celiacTests") loadAllCeliac();
+  if(name==="doctorSection") loadDoctorDocuments();
   if(name==="users") loadUsers();
   if(name==="auditLog") loadAudit();
 }
@@ -933,6 +958,7 @@ async function openPatientDetail(patientId, mode){
   if(isLab){ setupDropZone(); }
   loadCeliacTestsForPatient(patient.id, isLab);
   loadPdfFilesForPatient(patient.id);
+  loadAdditionalFilesForPatient(patient.id, "patientAdditionalFilesList");
   loadDoctorNotes(patient.id);
 }
 
@@ -1103,15 +1129,34 @@ async function initAdditionalUploadSection(){
 }
 
 function prepareAdditionalFiles(files){
-  additionalFilesQueue = Array.from(files || []).filter(file=>file.size > 0);
+  const newFiles = Array.from(files || []).filter(file=>file.size > 0);
+  additionalFilesQueue.push(...newFiles.map(file=>({file})));
+  document.getElementById("additionalFileInput").value = "";
+  renderAdditionalFilesQueue();
+}
+
+function renderAdditionalFilesQueue(){
   const queue = document.getElementById("additionalFilesQueue");
+  const actions = document.getElementById("additionalUploadActions");
+  const count = document.getElementById("additionalUploadCount");
   if(!queue) return;
-  queue.innerHTML = additionalFilesQueue.length ? additionalFilesQueue.map((file,index)=>`
+  queue.innerHTML = additionalFilesQueue.length ? additionalFilesQueue.map((item,index)=>`
     <div class="additional-file-row">
-      <div class="file-name" title="${escapeHtml(file.name)}"><i class="bi bi-paperclip"></i> ${escapeHtml(file.name)}</div>
-      <input class="input additional-file-title" data-index="${index}" placeholder="Enter a name for this file" aria-label="Name for ${escapeHtml(file.name)}">
-      <button class="btn btn-primary btn-sm" type="button" onclick="uploadAdditionalFiles()"><i class="bi bi-upload"></i> Upload</button>
-    </div>`).join("") : "";
+      <div class="file-name" title="${escapeHtml(item.file.name)}"><i class="bi bi-paperclip"></i> ${escapeHtml(item.file.name)}</div>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="removeAdditionalFile(${index})"><i class="bi bi-trash3"></i> Remove</button>
+    </div>`).join("") : `<div class="empty-state small">No files selected. Use Add Files to begin.</div>`;
+  if(actions) actions.style.display = additionalFilesQueue.length ? "flex" : "none";
+  if(count) count.textContent = additionalFilesQueue.length ? `${additionalFilesQueue.length} file(s) ready to save` : "";
+}
+
+function removeAdditionalFile(index){
+  additionalFilesQueue.splice(index,1);
+  renderAdditionalFilesQueue();
+}
+
+function clearAdditionalFilesQueue(){
+  additionalFilesQueue = [];
+  renderAdditionalFilesQueue();
 }
 
 async function uploadAdditionalFiles(){
@@ -1120,33 +1165,39 @@ async function uploadAdditionalFiles(){
     Swal.fire({icon:"warning", title:"Choose a patient and files", text:"Select a patient and at least one file first."});
     return;
   }
-  const titles = [...document.querySelectorAll(".additional-file-title")].map(input=>input.value.trim());
-  if(titles.some(title=>!title)){
-    Swal.fire({icon:"warning", title:"Name every file", text:"Enter a custom name for each selected file before uploading."});
-    return;
-  }
-  const buttons = [...document.querySelectorAll("#additionalFilesQueue button")];
+  const buttons = [...document.querySelectorAll("#additionalUploadActions button")];
   buttons.forEach(button=>{ button.disabled = true; });
   Swal.fire({title:"Uploading files…", allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
   try{
-    await Promise.all(additionalFilesQueue.map(async (file,index)=>{
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+    const results = await Promise.all(additionalFilesQueue.map(async (item,index)=>{
+      const safeName = item.file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
       const path = `${patientId}/additional/${Date.now()}_${index}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
-      const {error:uploadError} = await sb.storage.from(PDF_BUCKET).upload(path, file, {contentType:file.type || "application/octet-stream", upsert:false});
-      if(uploadError) throw uploadError;
-      const {data:publicFile} = sb.storage.from(PDF_BUCKET).getPublicUrl(path);
-      const {error:insertError} = await sb.from("lab_pdf_files").insert({
-        id:genId("FILE"), patient_id:patientId, test_name:"Additional Upload", file_name:titles[index],
-        storage_path:path, file_url:publicFile.publicUrl,
-        uploaded_by:state.session.doctor_name || state.session.username
-      });
-      if(insertError) throw insertError;
+      try{
+        const {error:uploadError} = await sb.storage.from(PDF_BUCKET).upload(path, item.file, {contentType:item.file.type || "application/octet-stream", upsert:false});
+        if(uploadError) throw uploadError;
+        const {data:publicFile} = sb.storage.from(PDF_BUCKET).getPublicUrl(path);
+        const {error:insertError} = await sb.from("lab_pdf_files").insert({
+          id:genId("FILE"), patient_id:patientId, test_name:"Additional Upload", file_name:item.file.name,
+          storage_path:path, file_url:publicFile.publicUrl,
+          uploaded_by:state.session.doctor_name || state.session.username
+        });
+        if(insertError) throw insertError;
+        return {item, error:null};
+      }catch(error){
+        await sb.storage.from(PDF_BUCKET).remove([path]).catch(()=>{});
+        return {item, error};
+      }
     }));
-    additionalFilesQueue = [];
+    const failed = results.filter(result=>result.error).map(result=>result.item);
+    additionalFilesQueue = failed;
     document.getElementById("additionalFileInput").value = "";
-    document.getElementById("additionalFilesQueue").innerHTML = "";
+    renderAdditionalFilesQueue();
     Swal.close();
-    toast("success","Files uploaded successfully");
+    if(failed.length){
+      Swal.fire({icon:"warning", title:"Some files could not be saved", text:`${results.length - failed.length} file(s) saved. ${failed.length} file(s) remain in the list for retry.`});
+    } else {
+      toast("success","All files uploaded successfully");
+    }
     loadAdditionalFilesForPatient(patientId);
   }catch(error){
     Swal.fire({icon:"error", title:"Upload failed", text:error.message || "Please try again."});
@@ -1155,12 +1206,13 @@ async function uploadAdditionalFiles(){
   }
 }
 
-async function loadAdditionalFilesForPatient(patientId){
-  const box = document.getElementById("additionalFilesList");
+async function loadAdditionalFilesForPatient(patientId, targetId = "additionalFilesList"){
+  const box = document.getElementById(targetId);
   if(!box) return;
   if(!patientId){ box.innerHTML = `<div class="empty-state small">Select a patient to view additional files.</div>`; return; }
   const {data, error} = await sb.from("lab_pdf_files").select("*").eq("patient_id", patientId).eq("test_name","Additional Upload").order("uploaded_at",{ascending:false});
   if(error || !data || !data.length){ box.innerHTML = `<div class="empty-state small">No additional files uploaded yet.</div>`; return; }
+  const canDelete = state.session?.role === "lab" || state.session?.role === "admin";
   box.innerHTML = data.map(file=>`
     <div class="pdf-row">
       <div class="pdf-ic"><i class="bi bi-file-earmark-arrow-up-fill"></i></div>
@@ -1168,8 +1220,22 @@ async function loadAdditionalFilesForPatient(patientId){
         <div class="pdf-name">${escapeHtml(file.file_name)}</div>
         <div class="pdf-sub">Uploaded ${fmtDate(file.uploaded_at)} by ${escapeHtml(file.uploaded_by||"—")}</div>
       </div>
-      <a class="btn btn-outline btn-sm" href="${file.file_url}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+      <div class="flex gap8"><a class="btn btn-outline btn-sm" href="${file.file_url}" target="_blank" rel="noopener"><i class="bi bi-eye"></i> View</a><a class="btn btn-ghost btn-sm" href="${file.file_url}" download rel="noopener"><i class="bi bi-download"></i> Download</a>${canDelete ? `<button class="btn btn-ghost btn-sm" type="button" onclick="deleteAdditionalFile('${file.id}')"><i class="bi bi-trash3"></i> Delete</button>` : ""}</div>
     </div>`).join("");
+}
+
+async function deleteAdditionalFile(fileId){
+  if(state.session?.role !== "lab" && state.session?.role !== "admin") return;
+  const {data:file, error:loadError} = await sb.from("lab_pdf_files").select("id,file_name,storage_path,patient_id").eq("id",fileId).eq("test_name","Additional Upload").maybeSingle();
+  if(loadError || !file) return;
+  const result = await Swal.fire({icon:"warning", title:"Delete this file?", text:`${file.file_name} will be removed permanently.`, showCancelButton:true, confirmButtonText:"Delete", cancelButtonText:"Cancel", confirmButtonColor:"#DC3545"});
+  if(!result.isConfirmed) return;
+  const {error} = await sb.from("lab_pdf_files").delete().eq("id",fileId).eq("test_name","Additional Upload");
+  if(error){ Swal.fire({icon:"error", title:"Delete failed", text:error.message}); return; }
+  await sb.storage.from(PDF_BUCKET).remove([file.storage_path]).catch(()=>{});
+  toast("success","File deleted");
+  loadAdditionalFilesForPatient(file.patient_id);
+  if(document.getElementById("doctorDocumentsBody")) loadDoctorDocuments();
 }
 
 /* ---- Doctor notes ---- */
@@ -1244,6 +1310,34 @@ async function doctorSearchPatient(){
   openPatientDetail(data[0].id, "doctor");
 }
 document.getElementById("doctorSearch").addEventListener("keydown", e=>{ if(e.key==="Enter") doctorSearchPatient(); });
+
+async function loadDoctorDocuments(){
+  const body = document.getElementById("doctorDocumentsBody");
+  if(!body) return;
+  const search = (document.getElementById("doctorDocumentsSearch")?.value || "").trim().toLowerCase();
+  const {data, error} = await sb.from("lab_pdf_files")
+    .select("*, patient:patients(id, name, patient_number)")
+    .eq("test_name","Additional Upload")
+    .order("uploaded_at",{ascending:false});
+  if(error){ body.innerHTML = `<tr><td colspan="6" class="empty-state">Could not load uploaded documents.</td></tr>`; return; }
+  const files = (data || []).filter(file=>{
+    const originalName = file.storage_path?.split("/").pop() || "";
+    const searchable = [originalName, file.file_name, file.uploaded_by, file.patient?.name, file.patient?.patient_number, file.patient?.id].join(" ").toLowerCase();
+    return !search || searchable.includes(search);
+  });
+  if(!files.length){ body.innerHTML = `<tr><td colspan="6" class="empty-state"><i class="bi bi-folder2-open"></i>No uploaded documents found.</td></tr>`; return; }
+  body.innerHTML = files.map(file=>{
+    const originalName = file.file_name || "Uploaded file";
+    return `<tr>
+      <td class="mono">${escapeHtml(originalName)}</td>
+      <td>${escapeHtml(file.patient?.name||"—")}</td>
+      <td class="mono">${escapeHtml(file.patient?.patient_number||file.patient?.id||"—")}</td>
+      <td>${fmtDate(file.uploaded_at)}</td>
+      <td>${escapeHtml(file.uploaded_by||"—")}</td>
+      <td class="text-right"><a class="btn btn-outline btn-sm" href="${file.file_url}" target="_blank" rel="noopener"><i class="bi bi-eye"></i> View</a><a class="btn btn-ghost btn-sm" href="${file.file_url}" download rel="noopener"><i class="bi bi-download"></i></a></td>
+    </tr>`;
+  }).join("");
+}
 
 /* =========================================================
    USERS (admin)
