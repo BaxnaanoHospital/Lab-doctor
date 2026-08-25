@@ -1119,12 +1119,14 @@ async function initAdditionalUploadSection(){
   const previousValue = select.value;
   const {data, error} = await sb.from("patients").select("id,name,patient_number").order("name");
   if(error) return;
+  const selectedWhileLoading = select.value;
+  const selectedValue = selectedWhileLoading || previousValue;
   select.innerHTML = `<option value="">Select a patient</option>` + (data || []).map(patient=>
     `<option value="${escapeHtml(patient.id)}">${escapeHtml(patient.name)}${patient.patient_number ? " · " + escapeHtml(patient.patient_number) : ""}</option>`
   ).join("");
-  if(previousValue && (data || []).some(patient=>patient.id===previousValue)){
-    select.value = previousValue;
-    loadAdditionalFilesForPatient(previousValue);
+  if(selectedValue && (data || []).some(patient=>patient.id===selectedValue)){
+    select.value = selectedValue;
+    loadAdditionalFilesForPatient(selectedValue);
   }
 }
 
@@ -1161,7 +1163,8 @@ function clearAdditionalFilesQueue(){
 
 async function uploadAdditionalFiles(){
   const patientId = document.getElementById("additionalUploadPatient")?.value;
-  if(!patientId || !additionalFilesQueue.length){
+  const queuedFiles = additionalFilesQueue.filter(item=>item && item.file instanceof File);
+  if(!patientId || !queuedFiles.length){
     Swal.fire({icon:"warning", title:"Choose a patient and files", text:"Select a patient and at least one file first."});
     return;
   }
@@ -1169,7 +1172,7 @@ async function uploadAdditionalFiles(){
   buttons.forEach(button=>{ button.disabled = true; });
   Swal.fire({title:"Uploading files…", allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
   try{
-    const results = await Promise.all(additionalFilesQueue.map(async (item,index)=>{
+    const results = await Promise.all(queuedFiles.map(async (item,index)=>{
       const safeName = item.file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
       const path = `${patientId}/additional/${Date.now()}_${index}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
       try{
