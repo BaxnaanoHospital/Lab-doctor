@@ -649,7 +649,8 @@ const state = {
   celiacFilter: "all",
   currentPatient: null,
   detailReturnView: "patients",
-  detailMode: "lab" // 'lab' or 'doctor'
+  detailMode: "lab", // 'lab' or 'doctor'
+  detailLoadToken: 0
 };
 
 /* =========================================================
@@ -930,9 +931,11 @@ async function savePatient(existingId){
    PATIENT DETAIL
 ========================================================= */
 async function openPatientDetail(patientId, mode){
+  const loadToken = ++state.detailLoadToken;
   state.detailMode = mode;
   state.detailReturnView = mode==="doctor" ? "doctorSection" : "patients";
   const {data:patient, error} = await sb.from("patients").select("*").eq("id", patientId).single();
+  if(loadToken !== state.detailLoadToken) return;
   if(error || !patient){ Swal.fire({icon:"error", title:"Patient not found"}); return; }
   state.currentPatient = patient;
   goView("patientDetail");
@@ -956,10 +959,10 @@ async function openPatientDetail(patientId, mode){
   document.getElementById("pdfPatientNoChip").textContent = "No. " + (patient.patient_number || "—");
 
   if(isLab){ setupDropZone(); }
-  loadCeliacTestsForPatient(patient.id, isLab);
-  loadPdfFilesForPatient(patient.id);
-  loadAdditionalFilesForPatient(patient.id, "patientAdditionalFilesList");
-  loadDoctorNotes(patient.id);
+  loadCeliacTestsForPatient(patient.id, isLab, loadToken);
+  loadPdfFilesForPatient(patient.id, loadToken);
+  loadAdditionalFilesForPatient(patient.id, "patientAdditionalFilesList", loadToken);
+  loadDoctorNotes(patient.id, loadToken);
 }
 
 function setupDropZone(){
@@ -971,8 +974,9 @@ function setupDropZone(){
 }
 
 /* ---- Celiac tests for a patient ---- */
-async function loadCeliacTestsForPatient(patientId, editable){
+async function loadCeliacTestsForPatient(patientId, editable, loadToken = state.detailLoadToken){
   const {data} = await sb.from("lab_celiac_tests").select("*").eq("patient_id", patientId).order("created_at",{ascending:false});
+  if(loadToken !== state.detailLoadToken || state.currentPatient?.id !== patientId) return;
   const box = document.getElementById("pdTestsList");
   if(!data || !data.length){ box.innerHTML = `<div class="empty-state"><i class="bi bi-clipboard2-x"></i>No Celiac Disease tests recorded yet.</div>`; return; }
   box.innerHTML = data.map(t=>`
@@ -1069,8 +1073,9 @@ async function saveCeliacTest(existingId){
 }
 
 /* ---- PDF files for a patient ---- */
-async function loadPdfFilesForPatient(patientId){
+async function loadPdfFilesForPatient(patientId, loadToken = state.detailLoadToken){
   const {data} = await sb.from("lab_pdf_files").select("*").eq("patient_id", patientId).eq("test_name","Celiac Disease Test").order("uploaded_at",{ascending:false});
+  if(loadToken !== state.detailLoadToken || state.currentPatient?.id !== patientId) return;
   const box = document.getElementById("pdPdfList");
   if(!data || !data.length){ box.innerHTML = `<div class="empty-state"><i class="bi bi-file-earmark-pdf"></i>No PDF files uploaded yet.</div>`; return; }
   box.innerHTML = data.map(f=>`
@@ -1171,7 +1176,7 @@ async function uploadAdditionalFiles(){
   try{
     const results = await Promise.all(queuedFiles.map(async (item,index)=>{
       const safeName = item.file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-      const path = `additional/${Date.now()}_${index}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
+      const path = `unlinked/additional/${Date.now()}_${index}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
       try{
         const {error:uploadError} = await sb.storage.from(PDF_BUCKET).upload(path, item.file, {contentType:item.file.type || "application/octet-stream", upsert:false});
         if(uploadError) throw uploadError;
@@ -1206,12 +1211,13 @@ async function uploadAdditionalFiles(){
   }
 }
 
-async function loadAdditionalFilesForPatient(patientId, targetId = "additionalFilesList"){
+async function loadAdditionalFilesForPatient(patientId, targetId = "additionalFilesList", loadToken = state.detailLoadToken){
   const box = document.getElementById(targetId);
   if(!box) return;
-  let query = sb.from("lab_pdf_files").select("*").eq("test_name","Additional Upload").order("uploaded_at",{ascending:false});
+  let query = sb.from("lab_pdf_files").select("*, patient:patients(id, name, patient_number)").eq("test_name","Additional Upload").order("uploaded_at",{ascending:false});
   if(patientId) query = query.eq("patient_id", patientId);
   const {data, error} = await query;
+  if(loadToken !== state.detailLoadToken || (patientId && state.currentPatient?.id !== patientId)) return;
   if(error || !data || !data.length){ box.innerHTML = `<div class="empty-state small">No additional files uploaded yet.</div>`; return; }
   const canDelete = state.session?.role === "lab" || state.session?.role === "admin";
   box.innerHTML = data.map(file=>`
@@ -1219,7 +1225,7 @@ async function loadAdditionalFilesForPatient(patientId, targetId = "additionalFi
       <div class="pdf-ic"><i class="bi bi-file-earmark-arrow-up-fill"></i></div>
       <div class="pdf-meta">
         <div class="pdf-name">${escapeHtml(file.file_name)}</div>
-        <div class="pdf-sub">Uploaded ${fmtDate(file.uploaded_at)} by ${escapeHtml(file.uploaded_by||"—")}</div>
+        <div class="pdf-sub">Patient: ${escapeHtml(file.patient?.name || "Not linked")} · ID: ${escapeHtml(file.patient?.patient_number || file.patient?.id || "—")} · Uploaded ${fmtDate(file.uploaded_at)} by ${escapeHtml(file.uploaded_by||"—")}</div>
       </div>
       <div class="flex gap8"><a class="btn btn-outline btn-sm" href="${file.file_url}" target="_blank" rel="noopener"><i class="bi bi-eye"></i> View</a><a class="btn btn-ghost btn-sm" href="${file.file_url}" download rel="noopener"><i class="bi bi-download"></i> Download</a>${canDelete ? `<button class="btn btn-ghost btn-sm" type="button" onclick="deleteAdditionalFile('${file.id}')"><i class="bi bi-trash3"></i> Delete</button>` : ""}</div>
     </div>`).join("");
@@ -1240,8 +1246,9 @@ async function deleteAdditionalFile(fileId){
 }
 
 /* ---- Doctor notes ---- */
-async function loadDoctorNotes(patientId){
+async function loadDoctorNotes(patientId, loadToken = state.detailLoadToken){
   const {data} = await sb.from("doctor_notes").select("*").eq("patient_id", patientId).order("created_at",{ascending:false});
+  if(loadToken !== state.detailLoadToken || state.currentPatient?.id !== patientId) return;
   const box = document.getElementById("doctorNotesList");
   if(!data || !data.length){ box.innerHTML = `<div class="empty-state small">No notes yet.</div>`; return; }
   box.innerHTML = data.map(n=>`
@@ -1302,13 +1309,19 @@ async function doctorSearchPatient(){
   const q = document.getElementById("doctorSearch").value.trim();
   const box = document.getElementById("doctorSearchResult");
   if(!q){ Swal.fire({icon:"warning", title:"Enter a Patient ID or Patient Number"}); return; }
-  const {data} = await sb.from("patients").select("*").or(`id.eq.${q},patient_number.eq.${q}`).limit(1);
-  if(!data || !data.length){
-    box.innerHTML = `<div class="card"><div class="empty-state"><i class="bi bi-search"></i>No patient found for "${escapeHtml(q)}". Check the Patient ID or Patient Number and try again.</div></div>`;
+  let {data:patient, error} = await sb.from("patients").select("*").eq("id", q).maybeSingle();
+  if(!patient && !error){
+    const result = await sb.from("patients").select("*").eq("patient_number", q).maybeSingle();
+    patient = result.data;
+    error = result.error;
+  }
+  if(error || !patient){
+    const message = error ? "The patient record could not be retrieved. Please try again." : `No patient found for "${escapeHtml(q)}". Check the Patient ID or Patient Number and try again.`;
+    box.innerHTML = `<div class="card"><div class="empty-state"><i class="bi bi-search"></i>${message}</div></div>`;
     return;
   }
   box.innerHTML = "";
-  openPatientDetail(data[0].id, "doctor");
+  openPatientDetail(patient.id, "doctor");
 }
 document.getElementById("doctorSearch").addEventListener("keydown", e=>{ if(e.key==="Enter") doctorSearchPatient(); });
 
