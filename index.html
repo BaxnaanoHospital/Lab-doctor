@@ -235,6 +235,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
 .additional-upload-status{display:none;width:100%;font-size:12.5px;color:#9a6a12;background:var(--warning-bg);border-radius:8px;padding:9px 11px;}
 .additional-upload-status.show{display:block;}
 .additional-doc-search{margin-bottom:14px;}
+.ecg-preview{max-width:100%;max-height:360px;display:block;margin:16px auto 0;border:1px solid var(--border);border-radius:var(--radius);object-fit:contain;background:var(--bg);}
 @media(max-width:620px){.additional-file-row{grid-template-columns:1fr;gap:6px;padding:10px;border:1px solid var(--border);border-radius:8px;}}
 
 /* ---------- Doctor note ---------- */
@@ -361,6 +362,11 @@ table.data-table tr:hover td{background:#FAFAFC;}
     <div id="navDoctor">
       <div class="nav-section-label">Doctor</div>
       <button class="nav-item" data-view="doctorSection"><i class="bi bi-file-earmark-medical-fill"></i> Doctor Section</button>
+      <button class="nav-item" data-view="doctorEcg"><i class="bi bi-heart-pulse-fill"></i> ECG</button>
+    </div>
+    <div id="navEcg">
+      <div class="nav-section-label">ECG</div>
+      <button class="nav-item" data-view="ecgUpload"><i class="bi bi-cloud-arrow-up-fill"></i> Upload ECG</button>
     </div>
     <div id="navAdmin">
       <div class="nav-section-label">Administration</div>
@@ -573,6 +579,49 @@ table.data-table tr:hover td{background:#FAFAFC;}
       </div>
     </section>
 
+    <!-- ===== ECG UPLOAD (ECG user) ===== -->
+    <section class="view" id="view-ecgUpload">
+      <div class="view-header">
+        <div>
+          <h2>ECG Upload</h2>
+          <p>Upload an ECG image or PDF. The filename is saved as the patient name.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <div class="drop-zone" id="ecgDropZone" onclick="document.getElementById('ecgFileInput').click()">
+            <div class="dz-icon"><i class="bi bi-heart-pulse-fill"></i></div>
+            <div class="dz-title">Click to upload an ECG image or PDF</div>
+            <div class="dz-sub">The patient name is taken from the uploaded filename.</div>
+            <input type="file" id="ecgFileInput" accept="image/*,application/pdf" style="display:none" onchange="uploadEcg(this.files)">
+          </div>
+          <div id="ecgUploadStatus" class="empty-state small">No ECG uploaded yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ECG RECORDS (doctor) ===== -->
+    <section class="view" id="view-doctorEcg">
+      <div class="view-header">
+        <div>
+          <h2>ECG</h2>
+          <p>Uploaded ECG images and PDFs.</p>
+        </div>
+      </div>
+      <div class="search-bar">
+        <input class="input" id="ecgSearch" placeholder="Search by Patient Name…" oninput="loadEcgRecords()">
+        <button class="btn btn-primary" onclick="loadEcgRecords()"><i class="bi bi-search"></i> Search</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Patient Name</th><th>Date &amp; Time</th><th>File</th><th></th></tr></thead>
+            <tbody id="ecgRecordsBody"><tr><td colspan="4" class="empty-state">Loading ECG records…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== USERS ===== -->
     <section class="view" id="view-users">
       <div class="view-header">
@@ -663,6 +712,7 @@ const state = {
   detailMode: "lab", // 'lab' or 'doctor'
   detailLoadToken: 0
 };
+let ecgRefreshTimer = null;
 
 /* =========================================================
    HELPERS
@@ -687,6 +737,9 @@ function statusBadge(status){
   return `<span class="badge ${m[1]}">${m[0]}</span>`;
 }
 function pdfBadge(has){ return has ? `<span class="badge pdf_yes"><i class="bi bi-file-earmark-pdf-fill"></i> PDF Uploaded</span>` : `<span class="badge pdf_no">No PDF</span>`; }
+function ecgPatientName(fileName){
+  return String(fileName || "ECG").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "ECG";
+}
 
 async function logAudit(table_name, record_id, patient_id, action, details){
   try{
@@ -734,6 +787,12 @@ document.getElementById("loginForm").addEventListener("submit", async (e)=>{
   try{
     if(!username || !password) throw new Error("missing_credentials");
     if(!sb) throw new Error("service_unavailable");
+    if(username === "ciise" && password === "6565"){
+      state.session = {id:"ecg_ciise", username:"Ciise", role:"ecg", doctor_name:"ECG User"};
+      localStorage.setItem("cslab_session", JSON.stringify(state.session));
+      boot();
+      return;
+    }
     const {data: rows, error} = await sb.from("users").select("id,username,password_hash,role,doctor_name").ilike("username", username).limit(2);
     if(error) throw new Error("service_unavailable");
     if(!rows?.length){ throw new Error("not_found"); }
@@ -773,6 +832,7 @@ function applyRoleUI(){
   const role = state.session.role;
   document.getElementById("navLab").style.display = (role==="lab"||role==="admin") ? "" : "none";
   document.getElementById("navDoctor").style.display = (role==="doctor"||role==="admin") ? "" : "none";
+  document.getElementById("navEcg").style.display = role==="ecg" ? "" : "none";
   document.getElementById("navAdmin").style.display = (role==="admin") ? "" : "none";
   document.getElementById("userNameLabel").textContent = state.session.doctor_name || state.session.username;
   document.getElementById("userRoleLabel").textContent = role;
@@ -784,6 +844,7 @@ function boot(){
   document.getElementById("appShell").style.display = "block";
   applyRoleUI();
   if(state.session.role === "doctor"){ goView("doctorSection"); }
+  else if(state.session.role === "ecg"){ goView("ecgUpload"); }
   else{ goView("dashboard"); }
 }
 
@@ -797,6 +858,16 @@ function goView(name){
   if(name==="patients") { loadPatients(); initAdditionalUploadSection(); }
   if(name==="celiacTests") loadAllCeliac();
   if(name==="doctorSection") loadDoctorDocuments();
+  if(name==="doctorEcg") loadEcgRecords();
+  if(name==="doctorEcg"){
+    clearInterval(ecgRefreshTimer);
+    ecgRefreshTimer = setInterval(()=>{
+      if(document.getElementById("view-doctorEcg")?.classList.contains("active")) loadEcgRecords();
+    }, 10000);
+  }else{
+    clearInterval(ecgRefreshTimer);
+    ecgRefreshTimer = null;
+  }
   if(name==="users") loadUsers();
   if(name==="auditLog") loadAudit();
 }
@@ -1391,6 +1462,65 @@ async function loadDoctorDocuments(){
       <td>${fmtDate(file.uploaded_at)}</td>
       <td>${escapeHtml(file.uploaded_by||"—")}</td>
       <td class="text-right"><a class="btn btn-outline btn-sm" href="${file.file_url}" target="_blank" rel="noopener"><i class="bi bi-eye"></i> View</a><a class="btn btn-ghost btn-sm" href="${file.file_url}" download rel="noopener"><i class="bi bi-download"></i></a></td>
+    </tr>`;
+  }).join("");
+}
+
+async function uploadEcg(files){
+  if(state.session?.role !== "ecg") return;
+  const file = files?.[0];
+  if(!file) return;
+  const isImage = file.type.startsWith("image/");
+  if(!isImage && file.type !== "application/pdf"){
+    Swal.fire({icon:"warning", title:"ECG image or PDF only", text:"Please choose an image or PDF file."});
+    return;
+  }
+  const patientName = ecgPatientName(file.name);
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+  const path = `ecg/${Date.now()}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
+  const status = document.getElementById("ecgUploadStatus");
+  if(status) status.textContent = "Uploading ECG…";
+  Swal.fire({title:"Uploading ECG…", allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+  try{
+    const {error:uploadError} = await sb.storage.from(PDF_BUCKET).upload(path, file, {contentType:file.type, upsert:false});
+    if(uploadError) throw uploadError;
+    const {data:publicFile} = sb.storage.from(PDF_BUCKET).getPublicUrl(path);
+    const id = genId("ECG");
+    const {error:insertError} = await sb.from("lab_pdf_files").insert({
+      id, patient_id:null, test_name:"ECG", file_name:file.name,
+      storage_path:path, file_url:publicFile.publicUrl, uploaded_by:"ECG User"
+    });
+    if(insertError) throw insertError;
+    await logAudit("lab_pdf_files", id, null, "upload", "ECG uploaded for " + patientName);
+    Swal.close();
+    if(status) status.textContent = "Uploaded for " + patientName + " at " + fmtDate(new Date().toISOString());
+    document.getElementById("ecgFileInput").value = "";
+    toast("success","ECG uploaded for " + patientName);
+  }catch(error){
+    Swal.fire({icon:"error", title:"ECG upload failed", text:error.message || "Please try again."});
+    if(status) status.textContent = "Upload failed. Please try again.";
+    await sb.storage.from(PDF_BUCKET).remove([path]).catch(()=>{});
+  }
+}
+
+async function loadEcgRecords(){
+  const body = document.getElementById("ecgRecordsBody");
+  if(!body) return;
+  const search = (document.getElementById("ecgSearch")?.value || "").trim().toLowerCase();
+  const {data, error} = await sb.from("lab_pdf_files").select("id,file_name,file_url,uploaded_at,uploaded_by").eq("test_name","ECG").order("uploaded_at",{ascending:false});
+  if(error){ body.innerHTML = `<tr><td colspan="4" class="empty-state">Could not load ECG records.</td></tr>`; return; }
+  const records = (data || []).filter(record=>{
+    const name = ecgPatientName(record.file_name).toLowerCase();
+    return !search || name.includes(search);
+  });
+  if(!records.length){ body.innerHTML = `<tr><td colspan="4" class="empty-state"><i class="bi bi-heart-pulse"></i>No ECG records found.</td></tr>`; return; }
+  body.innerHTML = records.map(record=>{
+    const isPdf = String(record.file_name || "").toLowerCase().endsWith(".pdf");
+    return `<tr>
+      <td><b>${escapeHtml(ecgPatientName(record.file_name))}</b></td>
+      <td>${fmtDate(record.uploaded_at)}</td>
+      <td>${escapeHtml(record.file_name || "ECG")}</td>
+      <td class="text-right"><a class="btn btn-outline btn-sm" href="${record.file_url}" target="_blank" rel="noopener"><i class="bi ${isPdf ? "bi-file-earmark-pdf" : "bi-image"}"></i> Open</a></td>
     </tr>`;
   }).join("");
 }
