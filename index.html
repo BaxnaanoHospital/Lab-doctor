@@ -367,6 +367,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
     <div id="navEEG">
       <div class="nav-section-label">EEG</div>
       <button class="nav-item" data-view="EEGUpload"><i class="bi bi-cloud-arrow-up-fill"></i> Upload EEG</button>
+      <button class="nav-item" data-view="EEGRecords"><i class="bi bi-heart-pulse-fill"></i> My Uploads</button>
     </div>
     <div id="navAdmin">
       <div class="nav-section-label">Administration</div>
@@ -522,30 +523,6 @@ table.data-table tr:hover td{background:#FAFAFC;}
       </div>
     </section>
 
-    <!-- ===== CELIAC TESTS (all) ===== -->
-    <section class="view" id="view-celiacTests">
-      <div class="view-header">
-        <div>
-          <h2>Celiac Disease Tests</h2>
-          <p>All Celiac Disease test records across every patient.</p>
-        </div>
-      </div>
-      <div class="tabs" id="celiacTabs">
-        <button class="tab-btn active" data-status="all" onclick="filterCeliac('all')">All</button>
-        <button class="tab-btn" data-status="pending" onclick="filterCeliac('pending')">Pending</button>
-        <button class="tab-btn" data-status="in_progress" onclick="filterCeliac('in_progress')">In Progress</button>
-        <button class="tab-btn" data-status="completed" onclick="filterCeliac('completed')">Completed</button>
-      </div>
-      <div class="card">
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>Patient</th><th>Patient No.</th><th>Result</th><th>Status</th><th>PDF</th><th>Test Date</th><th>Lab Staff</th><th></th></tr></thead>
-            <tbody id="allCeliacBody"><tr><td colspan="8" class="empty-state">Loading…</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
     <!-- ===== DOCTOR SECTION ===== -->
     <section class="view" id="view-doctorSection">
       <div class="view-header">
@@ -600,6 +577,28 @@ table.data-table tr:hover td{background:#FAFAFC;}
       </div>
     </section>
 
+    <!-- ===== EEG RECORDS (EEG user - my uploads) ===== -->
+    <section class="view" id="view-EEGRecords">
+      <div class="view-header">
+        <div>
+          <h2>My Uploads</h2>
+          <p>All EEG files you have uploaded.</p>
+        </div>
+      </div>
+      <div class="search-bar">
+        <input class="input" id="EEGMySearch" placeholder="Search by Patient Name or File…" oninput="loadMyEEGRecords()">
+        <button class="btn btn-primary" onclick="loadMyEEGRecords()"><i class="bi bi-search"></i> Search</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Patient Name</th><th>Date &amp; Time</th><th>File</th><th></th></tr></thead>
+            <tbody id="EEGMyRecordsBody"><tr><td colspan="4" class="empty-state">Loading your uploads…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== EEG RECORDS (doctor) ===== -->
     <section class="view" id="view-doctorEEG">
       <div class="view-header">
@@ -617,6 +616,30 @@ table.data-table tr:hover td{background:#FAFAFC;}
           <table class="data-table">
             <thead><tr><th>Patient Name</th><th>Date &amp; Time</th><th>File</th><th></th></tr></thead>
             <tbody id="EEGRecordsBody"><tr><td colspan="4" class="empty-state">Loading EEG records…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CELIAC TESTS (all) ===== -->
+    <section class="view" id="view-celiacTests">
+      <div class="view-header">
+        <div>
+          <h2>Celiac Disease Tests</h2>
+          <p>All Celiac Disease test records across every patient.</p>
+        </div>
+      </div>
+      <div class="tabs" id="celiacTabs">
+        <button class="tab-btn active" data-status="all" onclick="filterCeliac('all')">All</button>
+        <button class="tab-btn" data-status="pending" onclick="filterCeliac('pending')">Pending</button>
+        <button class="tab-btn" data-status="in_progress" onclick="filterCeliac('in_progress')">In Progress</button>
+        <button class="tab-btn" data-status="completed" onclick="filterCeliac('completed')">Completed</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Patient</th><th>Patient No.</th><th>Result</th><th>Status</th><th>PDF</th><th>Test Date</th><th>Lab Staff</th><th></th></tr></thead>
+            <tbody id="allCeliacBody"><tr><td colspan="8" class="empty-state">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -746,12 +769,13 @@ async function resolvePatientForEEGUpload(patientName){
   if(!name) return null;
   try{
     const clean = name.replace(/\s+/g, " ");
+    const matchName = clean.toLowerCase();
     const {data, error} = await sb.from("patients")
       .select("id,name,patient_number")
       .or(`name.ilike.%${clean}%,patient_number.ilike.%${clean}%`)
-      .limit(5);
+      .limit(10);
     if(error || !data?.length) return null;
-    const exact = data.find(p => p.name && p.name.toLowerCase() === clean.toLowerCase()) || data[0];
+    const exact = data.find(p => String(p.name || "").toLowerCase() === matchName) || data.find(p => String(p.patient_number || "").toLowerCase() === matchName) || data[0];
     return exact || null;
   }catch(e){
     console.warn("EEG patient resolution failed", e);
@@ -877,6 +901,7 @@ function goView(name){
   if(name==="celiacTests") loadAllCeliac();
   if(name==="doctorSection") loadDoctorDocuments();
   if(name==="doctorEEG") loadEEGRecords();
+  if(name==="EEGRecords") loadMyEEGRecords();
   if(name==="doctorEEG"){
     clearInterval(EEGRefreshTimer);
     EEGRefreshTimer = setInterval(()=>{
@@ -1493,19 +1518,22 @@ async function uploadEEG(files){
     Swal.fire({icon:"warning", title:"EEG image or PDF only", text:"Please choose an image or PDF file."});
     return;
   }
+
   const patientName = EEGPatientName(file.name);
   const patientMatch = await resolvePatientForEEGUpload(patientName);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
   const path = `EEG/${Date.now()}_${Math.random().toString(36).slice(2,8)}_${safeName}`;
-  const status = document.getElementById("EEGUploadStatus") || document.getElementById("eegUploadStatus");
+  const status = document.getElementById("EEGUploadStatus");
   if(status) status.textContent = "Uploading EEG…";
   Swal.fire({title:"Uploading EEG…", allowOutsideClick:false, didOpen:()=>Swal.showLoading()});
+
   try{
     const {error:uploadError} = await sb.storage.from(PDF_BUCKET).upload(path, file, {contentType:file.type, upsert:false});
     if(uploadError) throw uploadError;
     const {data:publicFile} = sb.storage.from(PDF_BUCKET).getPublicUrl(path);
     const id = genId("EEG");
-    const eegRecord = {
+
+    const {error:insertError} = await sb.from("lab_pdf_files").insert({
       id,
       patient_id: patientMatch?.id || null,
       test_name:"EEG",
@@ -1513,21 +1541,15 @@ async function uploadEEG(files){
       storage_path:path,
       file_url:publicFile.publicUrl,
       uploaded_by: state.session?.doctor_name || state.session?.username || "EEG User"
-    };
-    const {error:insertError} = await sb.from("lab_pdf_files").insert(eegRecord);
+    });
     if(insertError) throw insertError;
-    await logAudit("lab_pdf_files", id, patientMatch?.id || null, "upload", "EEG uploaded for " + patientName + (patientMatch ? " (shared to patient " + patientMatch.id + ")" : ""));
+
+    await logAudit("lab_pdf_files", id, patientMatch?.id || null, "upload", "EEG uploaded for " + patientName + (patientMatch ? " and linked to patient " + patientMatch.patient_number : ""));
     Swal.close();
     if(status) status.textContent = "Uploaded for " + patientName + " at " + fmtDate(new Date().toISOString());
     const eegInput = document.getElementById("EEGFileInput");
-    const legacyEegInput = document.getElementById("eegFileInput");
     if(eegInput) eegInput.value = "";
-    if(legacyEegInput) legacyEegInput.value = "";
-    toast("success","EEG uploaded for " + patientName + (patientMatch ? " and shared with the doctor" : ""));
-    if(patientMatch) {
-      const doctorSearchTarget = document.getElementById("doctorSearch");
-      if(doctorSearchTarget) doctorSearchTarget.value = patientMatch.patient_number || patientMatch.id;
-    }
+    toast("success","EEG uploaded for " + patientName + (patientMatch ? " and shared with doctor" : ""));
   }catch(error){
     Swal.fire({icon:"error", title:"EEG upload failed", text:error.message || "Please try again."});
     if(status) status.textContent = "Upload failed. Please try again.";
@@ -1536,27 +1558,29 @@ async function uploadEEG(files){
 }
 
 async function loadEEGRecords(){
-  const body = document.getElementById("EEGRecordsBody") || document.getElementById("eegRecordsBody");
+  const body = document.getElementById("EEGRecordsBody");
   if(!body) return;
-  const searchInput = document.getElementById("EEGSearch") || document.getElementById("eegSearch");
-  const search = (searchInput?.value || "").trim().toLowerCase();
+  const search = (document.getElementById("EEGSearch")?.value || "").trim().toLowerCase();
   const {data, error} = await sb.from("lab_pdf_files")
     .select("id,file_name,file_url,uploaded_at,uploaded_by,patient_id,patient:patients(id,name,patient_number)")
     .eq("test_name","EEG")
     .order("uploaded_at",{ascending:false});
   if(error){ body.innerHTML = `<tr><td colspan="4" class="empty-state">Could not load EEG records.</td></tr>`; return; }
+
   const records = (data || []).filter(record=>{
-    const patientLabel = [record.patient?.name, record.patient?.patient_number, EEGPatientName(record.file_name)].join(" ").toLowerCase();
-    return !search || patientLabel.includes(search);
+    const label = [record.patient?.name, record.patient?.patient_number, EEGPatientName(record.file_name)].join(" ").toLowerCase();
+    return !search || label.includes(search);
   });
+
   if(!records.length){ body.innerHTML = `<tr><td colspan="4" class="empty-state"><i class="bi bi-heart-pulse"></i>No EEG records found.</td></tr>`; return; }
+
   body.innerHTML = records.map(record=>{
     const isPdf = String(record.file_name || "").toLowerCase().endsWith(".pdf");
-    const patientLabel = record.patient?.name || EEGPatientName(record.file_name);
+    const patientName = record.patient?.name || EEGPatientName(record.file_name);
     const patientNumber = record.patient?.patient_number || "—";
     return `<tr>
       <td>
-        <div><b>${escapeHtml(patientLabel)}</b></div>
+        <div><b>${escapeHtml(patientName)}</b></div>
         <div class="small muted mono">${escapeHtml(patientNumber)}</div>
       </td>
       <td>${fmtDate(record.uploaded_at)}</td>
@@ -1566,25 +1590,40 @@ async function loadEEGRecords(){
   }).join("");
 }
 
-async function doctorSearchPatient(){
-  const q = document.getElementById("doctorSearch").value.trim();
-  const box = document.getElementById("doctorSearchResult");
-  if(!q){ Swal.fire({icon:"warning", title:"Enter a Patient ID or Patient Number"}); return; }
-  let {data:patient, error} = await sb.from("patients").select("*").eq("id", q).maybeSingle();
-  if(!patient && !error){
-    const result = await sb.from("patients").select("*").eq("patient_number", q).maybeSingle();
-    patient = result.data;
-    error = result.error;
-  }
-  if(error || !patient){
-    const message = error ? "The patient record could not be retrieved. Please try again." : `No patient found for "${escapeHtml(q)}". Check the Patient ID or Patient Number and try again.`;
-    box.innerHTML = `<div class="card"><div class="empty-state"><i class="bi bi-search"></i>${message}</div></div>`;
-    return;
-  }
-  box.innerHTML = "";
-  openPatientDetail(patient.id, "doctor");
+async function loadMyEEGRecords(){
+  const body = document.getElementById("EEGMyRecordsBody");
+  if(!body) return;
+  const search = (document.getElementById("EEGMySearch")?.value || "").trim().toLowerCase();
+  const uploadedBy = state.session.username || "EEG User";
+  const {data, error} = await sb.from("lab_pdf_files")
+    .select("id,file_name,file_url,uploaded_at,uploaded_by,patient_id,patient:patients(id,name,patient_number)")
+    .eq("test_name","EEG")
+    .eq("uploaded_by", uploadedBy)
+    .order("uploaded_at",{ascending:false});
+  if(error){ body.innerHTML = `<tr><td colspan="4" class="empty-state">Could not load your uploads.</td></tr>`; return; }
+
+  const records = (data || []).filter(record=>{
+    const label = [record.patient?.name, record.patient?.patient_number, EEGPatientName(record.file_name)].join(" ").toLowerCase();
+    return !search || label.includes(search);
+  });
+
+  if(!records.length){ body.innerHTML = `<tr><td colspan="4" class="empty-state"><i class="bi bi-inbox"></i>You haven't uploaded any EEG records yet.</td></tr>`; return; }
+
+  body.innerHTML = records.map(record=>{
+    const isPdf = String(record.file_name || "").toLowerCase().endsWith(".pdf");
+    const patientName = record.patient?.name || EEGPatientName(record.file_name);
+    const patientNumber = record.patient?.patient_number || "—";
+    return `<tr>
+      <td>
+        <div><b>${escapeHtml(patientName)}</b></div>
+        <div class="small muted mono">${escapeHtml(patientNumber)}</div>
+      </td>
+      <td>${fmtDate(record.uploaded_at)}</td>
+      <td>${escapeHtml(record.file_name || "EEG")}</td>
+      <td class="text-right"><a class="btn btn-outline btn-sm" href="${record.file_url}" target="_blank" rel="noopener"><i class="bi ${isPdf ? "bi-file-earmark-pdf" : "bi-image"}"></i> Open</a></td>
+    </tr>`;
+  }).join("");
 }
-document.getElementById("doctorSearch")?.addEventListener("keydown", e=>{ if(e.key==="Enter") doctorSearchPatient(); });
 
 /* =========================================================
    USERS (admin)
