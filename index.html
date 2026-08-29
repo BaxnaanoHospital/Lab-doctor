@@ -522,6 +522,82 @@ table.data-table tr:hover td{background:#FAFAFC;}
       </div>
     </section>
 
+    <!-- ===== DOCTOR SECTION ===== -->
+    <section class="view" id="view-doctorSection">
+      <div class="view-header">
+        <div>
+          <h2>Doctor Section</h2>
+          <p>Search a patient to view laboratory results and uploaded PDFs.</p>
+        </div>
+      </div>
+      <div class="search-bar">
+        <input class="input" id="doctorSearch" placeholder="Search by Patient ID or Patient Number…">
+        <button class="btn btn-primary" onclick="doctorSearchPatient()"><i class="bi bi-search"></i> Find Patient</button>
+      </div>
+      <div id="doctorSearchResult"></div>
+      <div class="card additional-upload-card">
+        <div class="card-header"><h3><i class="bi bi-files"></i> Uploads / Documents</h3><span class="badge role">Laboratory Files</span></div>
+        <div class="card-body">
+          <input class="input additional-doc-search" id="doctorDocumentsSearch" placeholder="Search by file name, title, patient or patient number…" oninput="loadDoctorDocuments()">
+          <div class="additional-upload-head">
+            <select class="input additional-date-filter" id="doctorDocumentsDateFilter" onchange="loadDoctorDocuments()">
+              <option value="all">All dates</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="custom">Choose date...</option>
+            </select>
+            <input class="input additional-date-filter" type="date" id="doctorDocumentsCustomDate" onchange="loadDoctorDocuments()" style="display:none">
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Original File Name</th><th>Patient</th><th>Patient No.</th><th>Upload Date</th><th>Uploaded By</th><th></th></tr></thead>
+              <tbody id="doctorDocumentsBody"><tr><td colspan="7" class="empty-state">Search or open Doctor Section to view documents.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== EEG UPLOAD (EEG user) ===== -->
+    <section class="view" id="view-eegUpload">
+      <div class="view-header">
+        <div>
+          <h2>EEG Upload</h2>
+          <p>Upload an EEG image or PDF. The filename is saved as the patient name.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <div class="drop-zone" id="eegDropZone" onclick="document.getElementById('eegFileInput').click()">
+            <div class="dz-icon"><i class="bi bi-heart-pulse-fill"></i></div>
+            <div class="dz-title">Click to upload an EEG image or PDF</div>
+            <div class="dz-sub">The patient name is taken from the uploaded filename.</div>
+            <input type="file" id="eegFileInput" accept="image/*,application/pdf" style="display:none" onchange="uploadEEG(this.files)">
+          </div>
+          <div id="eegUploadStatus" class="empty-state small">No EEG uploaded yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== EEG RECORDS (doctor) ===== -->
+    <section class="view" id="view-doctorEEG">
+      <div class="view-header">
+        <div>
+          <h2>EEG</h2>
+          <p>Uploaded EEG images and PDFs.</p>
+        </div>
+      </div>
+      <div class="search-bar">
+        <input class="input" id="eegSearch" placeholder="Search by Patient Name…" oninput="loadEEGRecords()">
+        <button class="btn btn-primary" onclick="loadEEGRecords()"><i class="bi bi-search"></i> Search</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Patient Name</th><th>Date &amp; Time</th><th>File</th><th></th></tr></thead>
+            <tbody id="eegRecordsBody"><tr><td colspan="4" class="empty-state">Loading EEG records…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== CELIAC TESTS (all) ===== -->
     <section class="view" id="view-celiacTests">
       <div class="view-header">
@@ -623,7 +699,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
     </section>
 
     <!-- ===== USERS ===== -->
-    <section class="view" id="view-users">
+    <section class="view" id="view-users" style="display:none;">
       <div class="view-header">
         <div>
           <h2>Users &amp; Roles</h2>
@@ -642,7 +718,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
     </section>
 
     <!-- ===== AUDIT LOG ===== -->
-    <section class="view" id="view-auditLog">
+    <section class="view" id="view-auditLog" style="display:none;">
       <div class="view-header">
         <div>
           <h2>Audit Log</h2>
@@ -1504,9 +1580,9 @@ async function uploadEEG(files){
 }
 
 async function loadEEGRecords(){
-  const body = document.getElementById("EEGRecordsBody");
+  const body = document.getElementById("eegRecordsBody");
   if(!body) return;
-  const search = (document.getElementById("EEGSearch")?.value || "").trim().toLowerCase();
+  const search = (document.getElementById("eegSearch")?.value || "").trim().toLowerCase();
   const {data, error} = await sb.from("lab_pdf_files").select("id,file_name,file_url,uploaded_at,uploaded_by").eq("test_name","EEG").order("uploaded_at",{ascending:false});
   if(error){ body.innerHTML = `<tr><td colspan="4" class="empty-state">Could not load EEG records.</td></tr>`; return; }
   const records = (data || []).filter(record=>{
@@ -1524,6 +1600,26 @@ async function loadEEGRecords(){
     </tr>`;
   }).join("");
 }
+
+async function doctorSearchPatient(){
+  const q = document.getElementById("doctorSearch").value.trim();
+  const box = document.getElementById("doctorSearchResult");
+  if(!q){ Swal.fire({icon:"warning", title:"Enter a Patient ID or Patient Number"}); return; }
+  let {data:patient, error} = await sb.from("patients").select("*").eq("id", q).maybeSingle();
+  if(!patient && !error){
+    const result = await sb.from("patients").select("*").eq("patient_number", q).maybeSingle();
+    patient = result.data;
+    error = result.error;
+  }
+  if(error || !patient){
+    const message = error ? "The patient record could not be retrieved. Please try again." : `No patient found for "${escapeHtml(q)}". Check the Patient ID or Patient Number and try again.`;
+    box.innerHTML = `<div class="card"><div class="empty-state"><i class="bi bi-search"></i>${message}</div></div>`;
+    return;
+  }
+  box.innerHTML = "";
+  openPatientDetail(patient.id, "doctor");
+}
+document.getElementById("doctorSearch")?.addEventListener("keydown", e=>{ if(e.key==="Enter") doctorSearchPatient(); });
 
 /* =========================================================
    USERS (admin)
