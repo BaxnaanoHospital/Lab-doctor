@@ -297,6 +297,7 @@ table.data-table tr:hover td{background:#FAFAFC;}
   .view-header h2{font-size:18px;}
   .kpi-grid{grid-template-columns:repeat(2,1fr);}
 }
+.badge.attachment_removed{background:#EEF0F3;color:#5b6170;border:1px dashed #c3c8d2;font-weight:600;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -1556,12 +1557,19 @@ async function uploadEEG(files){
   }
 }
 
+function EEGFileCell(record, isPdf){
+  if(record.attachment_removed_at){
+    return `<span class="badge attachment_removed" title="The file was removed on ${escapeHtml(fmtDateShort(record.attachment_removed_at))} to free storage. This record is kept as history."><i class="bi bi-archive"></i> Attachment removed</span>`;
+  }
+  return `<a class="btn btn-outline btn-sm" href="${escapeHtml(record.file_url)}" target="_blank" rel="noopener"><i class="bi ${isPdf ? "bi-file-earmark-pdf" : "bi-image"}"></i> Open</a>`;
+}
+
 async function loadEEGRecords(){
   const body = document.getElementById("EEGRecordsBody");
   if(!body) return;
   const search = (document.getElementById("EEGSearch")?.value || "").trim().toLowerCase();
   const {data, error} = await sb.from("lab_pdf_files")
-    .select("id,file_name,file_url,uploaded_at,uploaded_by,patient_id,patient:patients(id,name,patient_number)")
+    .select("id,file_name,file_url,uploaded_at,uploaded_by,patient_id,attachment_removed_at,patient:patients(id,name,patient_number)")
     .eq("test_name","EEG")
     .order("uploaded_at",{ascending:false});
   if(error){ body.innerHTML = `<tr><td colspan="4" class="empty-state">Could not load EEG records.</td></tr>`; return; }
@@ -1584,7 +1592,7 @@ async function loadEEGRecords(){
       </td>
       <td>${fmtDate(record.uploaded_at)}</td>
       <td>${escapeHtml(record.file_name || "EEG")}</td>
-      <td class="text-right"><a class="btn btn-outline btn-sm" href="${record.file_url}" target="_blank" rel="noopener"><i class="bi ${isPdf ? "bi-file-earmark-pdf" : "bi-image"}"></i> Open</a></td>
+      <td class="text-right">${EEGFileCell(record, isPdf)}</td>
     </tr>`;
   }).join("");
 }
@@ -1593,9 +1601,9 @@ async function loadMyEEGRecords(){
   const body = document.getElementById("EEGMyRecordsBody");
   if(!body) return;
   const search = (document.getElementById("EEGMySearch")?.value || "").trim().toLowerCase();
-  const uploadedBy = state.session.username || "EEG User";
+  const uploadedBy = state.session?.doctor_name || state.session?.username || "EEG User"; // must match what uploadEEG() saves
   const {data, error} = await sb.from("lab_pdf_files")
-    .select("id,file_name,file_url,uploaded_at,uploaded_by,patient_id,patient:patients(id,name,patient_number)")
+    .select("id,file_name,file_url,uploaded_at,uploaded_by,patient_id,attachment_removed_at,patient:patients(id,name,patient_number)")
     .eq("test_name","EEG")
     .eq("uploaded_by", uploadedBy)
     .order("uploaded_at",{ascending:false});
@@ -1619,7 +1627,7 @@ async function loadMyEEGRecords(){
       </td>
       <td>${fmtDate(record.uploaded_at)}</td>
       <td>${escapeHtml(record.file_name || "EEG")}</td>
-      <td class="text-right"><a class="btn btn-outline btn-sm" href="${record.file_url}" target="_blank" rel="noopener"><i class="bi ${isPdf ? "bi-file-earmark-pdf" : "bi-image"}"></i> Open</a></td>
+      <td class="text-right">${EEGFileCell(record, isPdf)}</td>
     </tr>`;
   }).join("");
 }
