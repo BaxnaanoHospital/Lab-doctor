@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="so">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baxnaano · Ku xidh Odoo</title>
+<style>
+  :root { --bg:#0f172a; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --brand:#0e7490; --ok:#15803d; --bad:#b91c1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(135deg,#0e7490,#0f172a); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); padding:20px; }
+  .card { background:var(--card); width:100%; max-width:420px; border-radius:18px; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,.35); }
+  h1 { margin:0 0 6px; font-size:22px; }
+  p { margin:0 0 18px; color:var(--muted); line-height:1.5; font-size:15px; }
+  label { display:block; font-weight:600; font-size:14px; margin-bottom:6px; }
+  .user { background:#f1f5f9; border-radius:10px; padding:10px 12px; font-size:14px; margin-bottom:16px; }
+  input { width:100%; padding:13px 14px; font-size:16px; border:1.5px solid #cbd5e1; border-radius:10px; outline:none; }
+  input:focus { border-color:var(--brand); }
+  button { margin-top:16px; width:100%; padding:14px; font-size:16px; font-weight:700; color:#fff; background:var(--brand); border:0; border-radius:10px; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .msg { margin-top:16px; padding:12px 14px; border-radius:10px; font-size:15px; line-height:1.45; display:none; }
+  .msg.ok { display:block; background:#dcfce7; color:var(--ok); }
+  .msg.bad { display:block; background:#fee2e2; color:var(--bad); }
+  .msg.wait { display:block; background:#e0f2fe; color:#075985; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Ku xidh Odoo</h1>
+  <p>Ballamaha online-ka ah ee la bixiyay waxay si toos ah u geli doonaan Odoo → Registration (Draft).</p>
+  <div class="user">User: <b>online.booking@baxnaano.com</b></div>
+  <label for="pw">Password-ka Odoo ee user-kan</label>
+  <input id="pw" type="password" autocomplete="off" placeholder="Geli password-ka">
+  <button id="go">Ku xidh</button>
+  <div id="msg" class="msg"></div>
+</main>
+<script>
+  const URL_FN = "https://tpmsyyhrnciqqcxlfamr.supabase.co/functions/v1/odoo-sync";
+  const btn = document.getElementById("go"), pw = document.getElementById("pw"), msg = document.getElementById("msg");
+  function show(cls, text) { msg.className = "msg " + cls; msg.textContent = text; }
+  async function go() {
+    const v = pw.value.trim();
+    if (!v) { show("bad", "Fadlan geli password-ka."); return; }
+    btn.disabled = true; show("wait", "Waa la hubinayaa… (ilaa 1 daqiiqo)");
+    try {
+      const r = await fetch(URL_FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_password", password: v }) });
+      const j = await r.json();
+      if (j.ok) { pw.value = ""; show("ok", "✅ Waa la xidhay! Odoo waa la galay, password-kana si qarsoon ayaa loo kaydiyay. Ballamaha Paid-ka ahi hadda waxay tagayaan Odoo."); }
+      else show("bad", "❌ Odoo ma aqbalin password-kan. Hubi inuu yahay password-ka user-ka Online Booking, kadib isku day mar kale.");
+    } catch (e) { show("bad", "❌ Internet-ka ayaa go'ay. Isku day mar kale."); }
+    btn.disabled = false;
+  }
+  btn.addEventListener("click", go);
+  pw.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+</script>
+</body>
+</html>
