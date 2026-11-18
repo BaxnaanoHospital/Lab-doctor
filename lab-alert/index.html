@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="so">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d4579">
+<title>Lab Alert · Dr. Harith</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root{--navy:#1d4579;--green:#8cc63f;--bg:#f4f6f9;--card:#fff;--muted:#6b7280;--line:#e5e7eb;--ok:#1e7b34}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#1f2024}
+  header{background:var(--navy);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px}
+  header img{width:38px;height:38px;border-radius:8px;background:#fff}
+  header h1{font-size:18px;margin:0;font-weight:700}
+  header small{display:block;opacity:.8;font-weight:400;font-size:12px}
+  main{max-width:720px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .status{display:flex;align-items:center;gap:10px;font-weight:600}
+  .dot{width:12px;height:12px;border-radius:50%;background:#bbb;flex:none}
+  .dot.on{background:var(--green);box-shadow:0 0 0 0 rgba(140,198,63,.6);animation:p 2s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(140,198,63,.6)}70%{box-shadow:0 0 0 12px rgba(140,198,63,0)}100%{box-shadow:0 0 0 0 rgba(140,198,63,0)}}
+  .muted{color:var(--muted);font-size:13px}
+  button{font:inherit;border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}
+  .primary{background:var(--navy);color:#fff;width:100%;font-size:17px;padding:16px}
+  .ghost{background:#eef1f5;color:var(--navy)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  input{font:inherit;font-size:22px;letter-spacing:6px;text-align:center;width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;margin:10px 0}
+  .item{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}
+  .item:first-child{border-top:0}
+  .tick{width:34px;height:34px;border-radius:50%;background:#e7f6ea;color:var(--ok);display:flex;align-items:center;justify-content:center;font-weight:900;flex:none}
+  .name{font-weight:700;font-size:16px}
+  .new{animation:flash 1.2s ease 3}
+  @keyframes flash{50%{background:#fff7c8}}
+  #banner{display:none;position:fixed;inset:0;background:rgba(29,69,121,.96);color:#fff;z-index:9;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+  #banner .big{font-size:30px;font-weight:800;margin:10px 0}
+  #banner .tests{opacity:.85;max-width:560px}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header><img src="icon.png" alt=""><div><h1>Lab Alert</h1><small>Dr. Harith · Baxnaano Hospital</small></div></header>
+<main>
+  <section id="login" class="card hide">
+    <b>Geli PIN-ka</b>
+    <input id="pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••">
+    <button class="primary" id="loginBtn">Gal</button>
+    <p id="loginErr" class="muted"></p>
+  </section>
+
+  <section id="app" class="hide">
+    <div class="card">
+      <div class="status"><span class="dot" id="dot"></span><span id="statusText">Dami</span></div>
+      <p class="muted" id="statusSub">Riix "Daar codka" si codku u shaqeeyo. Bogga ha xirin.</p>
+      <button class="primary" id="startBtn">🔊 Daar codka</button>
+      <div class="row">
+        <button class="ghost" id="testBtn">Tijaabi codka</button>
+        <button class="ghost" id="pushBtn">🔔 Ogeysiis (app-ka oo xiran)</button>
+      </div>
+      <p class="muted" id="pushMsg"></p>
+    </div>
+    <div class="card">
+      <b>Lab-yada dhammaaday (24 saac)</b>
+      <div id="list"><p class="muted">Weli ma jiro.</p></div>
+    </div>
+  </section>
+</main>
+<div id="banner"><div>✓ LAB COMPLETE</div><div class="big" id="bName"></div><div class="tests" id="bTests"></div><p class="muted" style="color:#cfe0f5">Taabo si aad u xirto</p></div>
+
+<script>
+const SB = "https://tpmsyyhrnciqqcxlfamr.supabase.co";
+const KEY = "sb_publishable_exzgU4lfqJpzI89f8Jjl7w_5vT2d4NR";
+const VAPID = "BNR25e03JjXTadx2Zk9EA5H9xOiitDuOazbaLZYgyQFsW5NJRzonY2rMjuEg6NA_Pj5qPUVYnEdUPOGs8XR4u_A";
+const $ = (id) => document.getElementById(id);
+const store = { get(k){ try{return localStorage.getItem(k)}catch{return null} }, set(k,v){ try{localStorage.setItem(k,v)}catch{} }, del(k){ try{localStorage.removeItem(k)}catch{} } };
+let pin = store.get("la_pin") || "";
+let lastId = 0, running = false, timer = null, wake = null, items = [];
+
+async function rpc(fn, args){
+  const r = await fetch(`${SB}/rest/v1/rpc/${fn}`, { method:"POST", headers:{ "Content-Type":"application/json", apikey: KEY, Authorization: "Bearer " + KEY }, body: JSON.stringify(args) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
+  return j;
+}
+
+// Somali spelling -> how an English voice should say it (Cabdi -> Abdi, Xasan -> Hasan, Faadumo -> Fadumo)
+function sayable(name){
+  const COMMON = { maxamed: "Mohamed", maxamuud: "Mohamud", xuseen: "Hussein", xasan: "Hassan", cali: "Ali", cabdi: "Abdi", axmed: "Ahmed", cumar: "Omar", cismaan: "Osman", ciise: "Isse", khadiija: "Khadija", caasha: "Asha", xaliimo: "Halimo", maryan: "Maryan", yuusuf: "Yusuf", ibraahim: "Ibrahim" };
+  return String(name || "").toLowerCase().split(/\s+/).filter(Boolean).map((w) => {
+    if (COMMON[w]) return COMMON[w];
+    let s = w.replace(/^c(?=[aeiou])/, "").replace(/c/g, "").replace(/x/g, "h").replace(/q/g, "k").replace(/dh/g, "d")
+      .replace(/oo/g, "o").replace(/aa/g, "a").replace(/ii/g, "ee").replace(/uu/g, "oo");
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }).join(" ");
+}
+
+let ctx = null;
+function chime(){
+  try {
+    ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = ctx.currentTime;
+    [880, 1175, 1568].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + i * 0.22); g.gain.exponentialRampToValueAtTime(0.5, t + i * 0.22 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.22 + 0.5);
+      o.connect(g).connect(ctx.destination); o.start(t + i * 0.22); o.stop(t + i * 0.22 + 0.55);
+    });
+  } catch {}
+}
+function voice(){
+  const vs = speechSynthesis.getVoices();
+  return vs.find((v) => /en-(GB|US)/i.test(v.lang) && /female|samantha|google uk english female|zira/i.test(v.name)) || vs.find((v) => /^en/i.test(v.lang)) || null;
+}
+function speak(text){
+  return new Promise((res) => {
+    try {
+      const u = new SpeechSynthesisUtterance(text); const v = voice();
+      if (v) u.voice = v; u.lang = (v && v.lang) || "en-GB"; u.rate = 0.88; u.volume = 1;
+      u.onend = res; u.onerror = res; speechSynthesis.speak(u);
+      setTimeout(res, 9000);
+    } catch { res(); }
+  });
+}
+let queue = Promise.resolve();
+function announce(a){
+  queue = queue.then(async () => {
+    $("bName").textContent = a.patient_name; $("bTests").textContent = `ID# ${a.patient_code || "-"} · Labtest ${a.labtest_no}${a.tests ? " · " + a.tests : ""}`;
+    $("banner").style.display = "flex";
+    chime(); await new Promise((r) => setTimeout(r, 1300));
+    const n = sayable(a.patient_name);
+    await speak(`Lab results are ready for ${n}.`);
+    await new Promise((r) => setTimeout(r, 700));
+    await speak(`${n}. Lab complete.`);
+  });
+}
+
+function render(newIds = new Set()){
+  if (!items.length) { $("list").innerHTML = '<p class="muted">Weli ma jiro.</p>'; return; }
+  $("list").innerHTML = items.map((a) => `<div class="item ${newIds.has(a.id) ? "new" : ""}"><div class="tick">✓</div><div><div class="name">${esc(a.patient_name)}</div><div class="muted">ID# ${esc(a.patient_code || "-")} · Labtest ${esc(a.labtest_no)} · ${new Date(a.completed_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</div><div class="muted">${esc(a.tests || "")}</div></div></div>`).join("");
+}
+function esc(s){ return String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+async function poll(first = false){
+  try {
+    const rows = await rpc("lab_alert_feed", { p_pin: pin, p_after: first ? 0 : lastId });
+    $("dot").className = "dot on"; $("statusText").textContent = running ? "Wuu shaqeynayaa — wuu dhegeysanayaa" : "Xiriir wuu jiraa (codku waa dami)";
+    if (rows && rows.length) {
+      const fresh = first ? [] : rows.slice().reverse();
+      items = [...rows, ...items.filter((x) => !rows.some((r) => r.id === x.id))].sort((a, b) => b.id - a.id).slice(0, 100);
+      lastId = Math.max(lastId, ...rows.map((r) => r.id));
+      render(new Set(fresh.map((r) => r.id)));
+      if (running) fresh.forEach(announce);
+    }
+    $("statusSub").textContent = "La hubiyay: " + new Date().toLocaleTimeString();
+  } catch (e) {
+    if (/bad_pin/.test(e.message)) { store.del("la_pin"); location.reload(); return; }
+    $("dot").className = "dot"; $("statusText").textContent = "Xiriirka internetka ayaa go'an — waan isku dayayaa";
+  }
+}
+async function keepAwake(){ try { wake = await navigator.wakeLock.request("screen"); } catch {} }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { if (running) keepAwake(); poll(); } });
+
+$("startBtn").onclick = async () => {
+  running = !running;
+  if (running) {
+    chime(); speechSynthesis.cancel(); await speak("Lab alert is on.");
+    keepAwake();
+    $("startBtn").textContent = "🔇 Dami codka";
+  } else { $("startBtn").textContent = "🔊 Daar codka"; try { wake && wake.release(); } catch {} }
+  poll();
+};
+$("testBtn").onclick = () => announce({ patient_name: "CABDIQAANI MAXAMED CABDI", patient_code: "0051048", labtest_no: "39206", tests: "Celiac Ig G, CBC, TSH" });
+$("banner").onclick = () => { $("banner").style.display = "none"; };
+
+function b64u(s){ const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...b].map((c) => c.charCodeAt(0))); }
+$("pushBtn").onclick = async () => {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("Browser-kan ma taageero (isticmaal Chrome).");
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Ogolaanshaha ogeysiiska waa la diiday.");
+    const reg = await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID) });
+    const j = sub.toJSON();
+    await rpc("lab_alert_subscribe", { p_pin: pin, p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    $("pushMsg").textContent = "✓ Ogeysiisku waa diyaar. Xitaa app-ku xiran yahay, telefoonku wuu dhawaaqi doonaa.";
+  } catch (e) { $("pushMsg").textContent = "⚠ " + e.message; }
+};
+
+async function start(){
+  $("login").classList.add("hide"); $("app").classList.remove("hide");
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  await poll(true);
+  clearInterval(timer); timer = setInterval(poll, 10000);
+}
+$("loginBtn").onclick = async () => {
+  const p = $("pin").value.trim(); $("loginErr").textContent = "…";
+  try { await rpc("lab_alert_feed", { p_pin: p, p_after: 999999999 }); pin = p; store.set("la_pin", p); $("loginErr").textContent = ""; start(); }
+  catch (e) { $("loginErr").textContent = /bad_pin/.test(e.message) ? "PIN-ku waa khalad." : "Xiriir la'aan: " + e.message; }
+};
+if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => {};
+if (pin) start(); else $("login").classList.remove("hide");
+</script>
+</body>
+</html>
