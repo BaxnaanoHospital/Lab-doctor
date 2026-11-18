@@ -821,19 +821,9 @@ document.getElementById("loginForm").addEventListener("submit", async (e)=>{
   try{
     if(!username || !password) throw new Error("missing_credentials");
     if(!sb) throw new Error("service_unavailable");
-    if(username === "ciise" && password === "6565"){
-      state.session = {id:"EEG_ciise", username:"Ciise", role:"EEG", doctor_name:"EEG User"};
-      localStorage.setItem("cslab_session", JSON.stringify(state.session));
-      boot();
-      return;
-    }
-    const {data: rows, error} = await sb.from("users").select("id,username,password_hash,role,doctor_name").ilike("username", username).limit(2);
+    const {data, error} = await sb.rpc("lab_login", {p_username: username, p_password: password});
     if(error) throw new Error("service_unavailable");
-    if(!rows?.length){ throw new Error("not_found"); }
-    if(rows.length > 1){ throw new Error("duplicate_username"); }
-    const data = rows[0];
-    const hash = await sha256Hex(password);
-    if(String(data.password_hash || "").toLowerCase() !== hash){ throw new Error("bad_password"); }
+    if(!data || data.error){ throw new Error(data?.error === "duplicate_username" ? "duplicate_username" : (data?.error === "missing_credentials" ? "missing_credentials" : "bad_password")); }
     state.session = {id:data.id, username:data.username, role:data.role, doctor_name:data.doctor_name};
     localStorage.setItem("cslab_session", JSON.stringify(state.session));
     boot();
@@ -1628,7 +1618,7 @@ async function loadMyEEGRecords(){
    USERS (admin)
 ========================================================= */
 async function loadUsers(){
-  const {data} = await sb.from("users").select("*").order("created_at",{ascending:true});
+  const {data} = await sb.from("users").select("id,username,role,doctor_name,created_at").order("created_at",{ascending:true});
   const body = document.getElementById("usersBody");
   if(!data || !data.length){ body.innerHTML = `<tr><td colspan="4" class="empty-state">No users found.</td></tr>`; return; }
   body.innerHTML = data.map(u=>`
@@ -1665,10 +1655,9 @@ async function saveUser(){
   const role = document.getElementById("uRole").value;
   const doctor_name = document.getElementById("uDoctorName").value.trim();
   if(!validateRequired([{label:"Username", value:username},{label:"Password", value:password}])) return;
-  const password_hash = await sha256Hex(password);
   const id = genId("U");
-  const {error} = await sb.from("users").insert({id, username, password_hash, role, doctor_name: role==="doctor" ? doctor_name : null});
-  if(error){ Swal.fire({icon:"error", title:"Could not create user", text:error.message.includes("duplicate")?"That username already exists.":error.message}); return; }
+  const {data: res, error} = await sb.rpc("lab_create_user", {p_id:id, p_username:username, p_password:password, p_role:role, p_doctor_name: role==="doctor" ? doctor_name : null});
+  if(error || res?.error){ Swal.fire({icon:"error", title:"Could not create user", text: res?.error==="duplicate" ? "That username already exists." : (error?.message || "Please try again.")}); return; }
   await logAudit("users", id, null, "create", "New "+role+" user created: "+username);
   toast("success","User created");
   closeModal();
